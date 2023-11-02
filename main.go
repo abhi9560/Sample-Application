@@ -25,14 +25,17 @@ import (
   "go.mongodb.org/mongo-driver/bson"
   "go.mongodb.org/mongo-driver/mongo"
   "go.mongodb.org/mongo-driver/mongo/options"
+  "github.com/go-echarts/statsview"
 // "strings"
   "html/template"
   "io"
   //"sync"
+  "os/signal"
+  "syscall"
   "net/http"
   _"net/http/pprof"
   "os"
-  _ "plugin"
+  _"plugin"
 )
 
 // Define the template registry struct
@@ -78,13 +81,13 @@ func (s Student) String() string {
 }
 
 func pingAndQueryDB(db *sql.DB, ctx context.Context) {
-  {
+  
     status := "Connection is up"
     if err := db.PingContext(ctx); err != nil {
       status = "Connection is down"
     }
     log.Println(status)
-  }
+  
 
   rows, err := db.QueryContext(ctx, "SELECT * FROM pet")
   if err != nil {
@@ -115,13 +118,12 @@ func pingAndQueryDB(db *sql.DB, ctx context.Context) {
 
 
 func callExample(ctx context.Context) {
-  db, err := sql.Open("mysql", "root:Abhi@tcp(localhost:3306)/testdb")
+  db, err := sql.Open("mysql", "root:cavisson@tcp(localhost:3306)/testdb")
   if err != nil {
     log.Println("Error opening DB")
-    log.Println(err)
     return
   }
-  defer db.Close()
+ 
 
   // Set the maximum number of open connections
   db.SetMaxOpenConns(10)
@@ -132,7 +134,6 @@ func callExample(ctx context.Context) {
   // Ping the database once to verify the connection
   if err = db.Ping(); err != nil {
     log.Println("Error connecting to DB")
-    log.Println(err)
     return
   }
 
@@ -155,6 +156,10 @@ func main() {
 
   // Echo instance
   e := echo.New()
+  mgr := statsview.New()
+
+  // Start() runs a HTTP server at `localhost:18066` by default.
+  go mgr.Start()
 
   // Serve static files
   staticDir := http.Dir("static")
@@ -179,6 +184,7 @@ func main() {
   "view/hello.html",
   "view/database.html",
   "view/generator.html",
+  "view/bost.html",
   }
   
   templates := make(map[string]*template.Template)
@@ -186,6 +192,7 @@ func main() {
     tmpl, err := parseTemplates(filename, "view/base.html")
     if err != nil {
       // Handle the error appropriately (e.g., log, return an error)
+      log.Println("error in templates")
     }
     templates[filepath.Base(filename)] = tmpl
   }
@@ -220,13 +227,6 @@ func main() {
   // Route => api
   e.GET("/api/get-full-name", api.GetFullName)
   e.POST("/api/post-full-name", api.PostFullName)
-  e.GET("/hello/json/abhi/karan/abhay", func(c echo.Context) error {
-    return c.Render(http.StatusOK, "json.html", echo.Map{"title": "Page file title!!"})
-  })
-
-  e.GET("/page", func(c echo.Context) error {
-    return c.Render(http.StatusOK, "page.html", echo.Map{"title": "Page file title!!"})
-  })
   e.GET("/database", Database)
   e.GET("/database/mysql", mainAdmin)
   e.GET("/database/mongodb", mainmongo)
@@ -234,40 +234,45 @@ func main() {
 
   e.GET("/database/postpg", Postpg)
   e.GET("/hello/cats", getabhi)
- 
   e.GET("/httpcall",mainAdmin2)
+  e.POST("/save",handler.SaveDB)
+  e.POST("/submit", handler.Complete)
+  e.GET("/hello/json/abhi/karan/abhay", func(c echo.Context) error {
+    return c.Render(http.StatusOK, "json.html", echo.Map{"title": "Page file title!!"})
+  })
 
-  defer func() {
-		if r := recover(); r != nil {
-			log.Fatal("Panic occurred:", r)
-		}
-	}()
+  e.GET("/page", func(c echo.Context) error {
+    return c.Render(http.StatusOK, "page.html", echo.Map{"title": "Page file title!!"})
+  })
+ 
+  e.GET("/bost", func(c echo.Context) error {
+        return c.Render(http.StatusOK, "bost.html", echo.Map{"title": "Page file title!!"})
+  })
 
-    // Route for processing the form submission
- e.POST("/submit", func(c echo.Context) error {
-    url := c.FormValue("url")
-    client := http.DefaultClient
-    req, err := http.NewRequest("GET", url, nil)
-    if err != nil {
-        log.Println("Error creating new request:", err)
-        return c.String(http.StatusBadRequest, "Bad Request")
-    }
-    resp, err := client.Do(req)
-    if err != nil {
-        log.Println("Error reading response:", err)
-        return c.String(http.StatusInternalServerError, "Internal Server Error")
-    }
-    defer resp.Body.Close()
-
-    return c.String(http.StatusOK, "You submitted URL is: "+url)
-})
+  signalChannel := make(chan os.Signal, 1)
+  signal.Notify(signalChannel, syscall.SIGINT, syscall.SIGTERM)
+  go func() {
+    <-signalChannel
+    fmt.Println("Received termination signal. Closing the database connection...")
+    os.Exit(1)
+  }()
 
   /*file, err := os.OpenFile("/home/cavisson/logs.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
     if err != nil {
       log.Fatal(err)
     }
 
+
     log.SetOutput(file)*/
+
+    defer func() {
+      if r := recover(); r != nil {
+        log.Fatal("Panic occurred:", r)
+      }
+      // fmt.Println("Closing the database connection...")
+      //   db.Close()
+    }()
+    
 
   e.Logger.Fatal(e.Start(":1323"))
 }
@@ -301,8 +306,7 @@ func Database(c echo.Context) error {
 }
 
 
-func Hello(c echo.Context) error {
-  
+func Hello(c echo.Context) error { 
   return c.Render(http.StatusOK, "hello.html", echo.Map{"title": "Page file title!!"})
 }
 
@@ -466,5 +470,3 @@ func Postpg(c echo.Context) error {
 
     return c.Render(http.StatusOK, "postpg.html", echo.Map{"title": "Page file title!!"})
 }
-
-
