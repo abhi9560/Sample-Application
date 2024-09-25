@@ -1,0 +1,139 @@
+Go routines and channel
+
+
+func main() {
+	var Count int
+	var ch = make(chan int, 5)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	// Send values to the channel
+	for i := 0; i < 5; i++ {
+		ch <- i
+		wg.Add(1)
+		go func() {
+			mu.Lock()
+			Count++
+			fmt.Println("count :", Count)
+			mu.Unlock()
+			wg.Done()
+		}()
+	}
+	close(ch) // Close the channel after sending all values
+
+	// Read values from the channel
+	for r := range ch {
+		fmt.Println(r)
+	}
+
+	wg.Wait() // Wait for all goroutines to finish
+}
+
+// ############################### sceond way #################################################### //
+
+func main() {
+	var Count int
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var ch = make(chan int, 5)
+
+	// Launch 5 goroutines.
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		ch <- i
+		go func() {
+			defer wg.Done()
+
+			// Lock the mutex when modifying Count to avoid race conditions.
+			mu.Lock()
+			Count++
+			fmt.Println("count :", Count)
+			mu.Unlock()
+
+			// Read from the channel (ensure only one goroutine does this).
+			for r := range ch {
+				fmt.Println("r is", r)
+			}
+		}()
+	}
+
+	// Close the channel after all values have been sent.
+	close(ch)
+
+	// Wait for all goroutines to finish.
+	wg.Wait()
+}
+// *********************************** go routine partten ********************************** //
+
+Link :
+    https://reliasoftware.com/blog/golang-concurrency-patterns
+// ############################################################################################
+Cache System with Expiry using sync.Map
+This is a simple cache system where values are cached with an expiration time. You can use Go's sync.Map for thread-safe storage and concurrent access.
+
+Example: Cache System with sync.Map
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+type CacheItem struct {
+	Value      interface{}
+	Expiration time.Time
+}
+
+type Cache struct {
+	data sync.Map
+}
+
+func (c *Cache) Set(key string, value interface{}, duration time.Duration) {
+	c.data.Store(key, CacheItem{
+		Value:      value,
+		Expiration: time.Now().Add(duration),
+	})
+}
+
+func (c *Cache) Get(key string) (interface{}, bool) {
+	item, ok := c.data.Load(key)
+	if !ok {
+		return nil, false
+	}
+
+	cacheItem := item.(CacheItem)
+	if time.Now().After(cacheItem.Expiration) {
+		// Cache expired, remove it
+		c.data.Delete(key)
+		return nil, false
+	}
+	return cacheItem.Value, true
+}
+
+func main() {
+	cache := Cache{}
+
+	// Set a cache item with 2 seconds expiration
+	cache.Set("greeting", "Hello, World!", 2*time.Second)
+
+	// Retrieve the cached value
+	value, found := cache.Get("greeting")
+	if found {
+		fmt.Println("Cached value:", value)
+	} else {
+		fmt.Println("Cache expired or not found")
+	}
+
+	// Wait 3 seconds
+	time.Sleep(3 * time.Second)
+
+	// Try retrieving the value again (it should be expired)
+	value, found = cache.Get("greeting")
+	if found {
+		fmt.Println("Cached value:", value)
+	} else {
+		fmt.Println("Cache expired or not found")
+	}
+}
+
